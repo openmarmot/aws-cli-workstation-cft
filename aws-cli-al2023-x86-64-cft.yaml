@@ -1,0 +1,157 @@
+# https://github.com/openmarmot/aws-cli-workstation-cft
+
+# note - IAM policy should be scoped down to meet your minimum requirements
+
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template that creates a Linux cli workstation with pre-installed tools
+Parameters:
+  NamePrefix:
+    Description: A prefix to use when naming objects created by this template
+    Type: String
+    Default: 'awscli'
+  InstanceType:
+    Description: EC2 Instance Type 
+    Type: String
+    Default: t3a.small
+  KeyName:
+    Type: String
+    Description: Optional EC2 Keypair name for SSH access
+    Default: ''
+  AmiId:
+    Description: Amazon Linux 2023 AMI ID
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
+  VolumeSize:
+    Description: Size of the EC2 instance volume in GB
+    Type: Number
+    Default: 25
+  VPC:
+    Description: The VPC for the AWS objects
+    Type: 'AWS::EC2::VPC::Id'
+  SubnetId:
+    Description: VPC PUBLIC subnet ID
+    Type: 'AWS::EC2::Subnet::Id'
+  NetAllowedIn:
+    Description: 'CIDR Network Allowed to access the server (X.X.X.X/XX) over ssh. This could be your public ip with a /32'
+    Type: String
+    Default: '10.0.0.1/32'
+
+Conditions:
+  HasKeyName: !Not [!Equals [!Ref KeyName, '']]
+
+Resources:
+
+  IAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${NamePrefix}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - 'ec2.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      # note this should be scoped down to the minimum you need
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess'
+      Policies:
+        - PolicyName: ssm-connect-minimal-permissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ssm:UpdateInstanceInformation'
+                  - 'ssmmessages:CreateControlChannel'
+                  - 'ssmmessages:CreateDataChannel'
+                  - 'ssmmessages:OpenControlChannel'
+                  - 'ssmmessages:OpenDataChannel'
+                Resource: '*'
+
+  InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      InstanceProfileName: !Sub '${NamePrefix}-instance-profile'
+      Roles:
+        - Ref: IAMRole
+
+  InstanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Sub '${NamePrefix} security group'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref NetAllowedIn
+          Description: 'Allow SSH in'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: 'Allow Outbound'
+      VpcId: !Ref VPC
+
+  workstation:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      KeyName: !If
+          - HasKeyName
+          - !Ref KeyName
+          - !Ref AWS::NoValue
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      IamInstanceProfile: !Ref InstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref VolumeSize
+            VolumeType: gp3
+            Encrypted: true
+      SecurityGroupIds:
+        - !GetAtt InstanceSecurityGroup.GroupId
+      SubnetId: !Ref SubnetId
+      UserData:
+        Fn::Base64: !Sub |
+          #!/usr/bin/env bash
+
+          # install common utilities
+          dnf install -y git htop 
+
+          # install docker
+          dnf install -y docker
+
+          # terraform
+          yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+          dnf install -y terraform
+
+          # ansible 
+          dnf install -y ansible
+
+          # nodejs and npm
+          curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
+          dnf install -y nodejs
+
+          # typescript
+          npm install -g typescript
+
+          # aws cdk
+          npm install -g aws-cdk
+
+
+          # Signal result to CloudFormation
+          /opt/aws/bin/cfn-signal -e $? --stack "${AWS::StackName}" --resource "workstation" --region "${AWS::Region}"
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix} cli workstation'
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT10M
+
+Outputs:
+  PublicIP:
+    Description: Public IP 
+    Value: !GetAtt workstation.PublicIp
