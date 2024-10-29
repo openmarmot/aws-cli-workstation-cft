@@ -11,9 +11,13 @@ Parameters:
     Type: String
     Default: 'awscli'
   InstanceType:
-    Description: EC2 Instance Type 
+    Description: EC2 Instance Type (2GiB,4GiB,8GiB)
     Type: String
     Default: t3a.small
+    AllowedValues:
+      - t3a.small
+      - t3a.medium
+      - t3a.large
   KeyName:
     Type: String
     Description: Optional EC2 Keypair name for SSH access
