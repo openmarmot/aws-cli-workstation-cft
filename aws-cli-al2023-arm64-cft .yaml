@@ -13,11 +13,11 @@ Parameters:
   InstanceType:
     Description: EC2 Instance Type (2GiB,4GiB,8GiB)
     Type: String
-    Default: t3a.small
+    Default: t4g.small
     AllowedValues:
-      - t3a.small
-      - t3a.medium
-      - t3a.large
+      - t4g.small
+      - t4g.medium
+      - t4g.large
   KeyName:
     Type: String
     Description: Optional EC2 Keypair name for SSH access
@@ -25,7 +25,7 @@ Parameters:
   AmiId:
     Description: Amazon Linux 2023 AMI ID
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64'
   VolumeSize:
     Description: Size of the EC2 instance volume in GB
     Type: Number
